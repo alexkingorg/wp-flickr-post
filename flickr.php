@@ -144,10 +144,7 @@ function akv3_flickr_process_feed($url) {
 		}
 		update_post_meta($post_id, '_thumbnail_id', $id);
 // publish post
-		wp_update_post(array(
-			'ID' => $post_id,
-			'post_status' => 'publish'
-		));
+		wp_publish_post($post_id);
 	}
 // restore timezone
 	date_default_timezone_set($tz);
