@@ -8,7 +8,8 @@ Description: Create posts from Flickr images.
 @define('AKV3_FLICKR_CAT', '5');
 @define('AKV3_FLICKR_TIMEZONE', 'America/Denver');
 @define('AKV3_FLICKR_DRYRUN', false);
-@define('AKV3_FLICKR_API', 'json');
+@define('AKV3_FLICKR_API', 'html');
+@define('AKV3_FLICKR_API_KEY', 'your-api-key-goes-here');
 
 function akv3_flickr_cron() {
 	set_time_limit(0);
@@ -24,8 +25,9 @@ function akv3_flickr_cron() {
 	}
 	if (is_array($feeds) && count($feeds)) {
 		foreach ($feeds as $feed) {
-			$photos = $parse($feed);
-			akv3_flickr_insert_posts($photos);
+			if ($photos = $parse($feed)) {
+				akv3_flickr_insert_posts($photos);
+			}
 		}
 	}
 	if (AKV3_FLICKR_DRYRUN) {
@@ -34,12 +36,12 @@ function akv3_flickr_cron() {
 }
 add_action('social_cron_15', 'akv3_flickr_cron');
 
-function akv3_flickr_guid($guid) {
-	return $guid;
+function akv3_flickr_guid($id) {
+	return 'http://flickr-'.urlencode($id);
 }
 
 function akv3_flickr_feeds_json() {
-// NOTE: these Flickr APIs update very slowsly and omit various images for reasons unknown - they are not to be trusted. 
+// NOTE: these Flickr APIs update very slowly and omit various images for reasons unknown - they are not to be trusted. 
 	return array(
 		'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags=instagramapp&lang=en-us&format=json&nojsoncallback=1',
 		'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags=toblog&lang=en-us&format=json&nojsoncallback=1',
@@ -50,7 +52,7 @@ function akv3_flickr_process_feed_json($url) {
 // get JSON
 	$response = wp_remote_get($url);
 	if (is_wp_error($response)) {
-		return;
+		return false;
 	}
 	$data = json_decode($response['body']);
 	$items = $data->items;
@@ -77,6 +79,7 @@ function akv3_flickr_process_feed_json($url) {
 // restore timezone
 		date_default_timezone_set($tz);
 	}
+	$photos = akv3_flickr_ignore_existing($photos);
 	return $photos;
 }
 
@@ -88,23 +91,74 @@ function akv3_flickr_feeds_html() {
 }
 
 function akv3_flickr_process_feed_html($url) {
-	die('TODO');
+	return akv3_flickr_process_feed_html_phpquery($url);
 }
 
-function akv3_flickr_insert_posts($photos = array()) {
-/* format for inbound photo data
-$photo = array(
-	'url' => ,
-	'guid' => ,
-	'title' => ,
-	'description' => ,
-	'date' => , // timestamp
-	'tags' => , // flickr tags, stored as meta
-);
-*/
+function akv3_flickr_process_feed_html_phpquery($url) {
+	if (!class_exists('phpQuery')) {
+		include_once('phpQuery.inc.php');
+	}
+	$response = wp_remote_get($url);
+	if (is_wp_error($response)) {
+		return false;
+	}
+// get ids
+	$photos = array();
+	$html = phpQuery::newDocumentHTML($response['body']);
+	foreach (pq($html['#GoodStuff p.UserTagList a']) as $node) {
+		$href = pq($node)->attr('href');
+		if (!empty($href)) {
+			$parts = explode('/', $href);
+			$id = $parts[3];
+			$guid = akv3_flickr_guid($id);
+			$photos[$guid] = array(
+				'id' => $id,
+				'url' => str_replace('_t.jpg', '_b.jpg', pq($node)->find('img')->attr('src')), // get the large size
+				'guid' => $guid,
+				'title' => null,
+				'description' => null,
+				'date' => null, // timestamp
+				'tags' => null,
+			);
+		}
+	}
+// check for existing
+	$photos = akv3_flickr_ignore_existing($photos);
+// get details on ones to insert
+	if (count($photos)) {
+		foreach ($photos as $guid => &$photo) {
+			if ($data = akv3_flickr_photo_details($photo['id'])) {
+				$photo['title'] = $data->photo->title->_content;
+				$photo['description'] = $data->photo->description->_content;
+				$photo['date'] = $data->photo->dates->posted;
+				$tags = array();
+				$source = $data->photo->tags->tag;
+				foreach ($source as $tag) {
+					$tags[] = $tag->_content;
+				}
+				$photo['tags'] = implode(' ', $tags);
+			}
+			else {
+				unset($photos[$guid]);
+			}
+		}
+	}
+	return $photos;
+}
 
+function akv3_flickr_photo_details($id) {
+	$url = 'http://api.flickr.com/services/rest/?method=flickr.photos.getInfo&photo_id='
+		.$id.'&format=json&nojsoncallback=1&api_key='.AKV3_FLICKR_API_KEY;
+	$response = wp_remote_get($url);
+	if (is_wp_error($response)) {
+		return false;
+	}
+	return json_decode($response['body']);
+}
+
+function akv3_flickr_ignore_existing($photos) {
 	if (!count($photos)) {
-		return;
+		return $photos;
 	}
 	global $wpdb;
 // grab item hashes, look for existing items (use GUID)
@@ -119,6 +173,20 @@ $photo = array(
 			unset($photos[$guid]);
 		}
 	}
+	return $photos;
+}
+
+function akv3_flickr_insert_posts($photos = array()) {
+/* expected data format
+$photo = array(
+	'url' => ,
+	'guid' => ,
+	'title' => ,
+	'description' => ,
+	'date' => , // timestamp
+	'tags' => , // flickr tags, stored as meta
+);
+*/
 	if (!count($photos)) {
 		return;
 	}
@@ -133,7 +201,6 @@ $photo = array(
 	foreach ($photos as $guid => $photo) {
 		// hack to not bring in older photos
 		if ($photo['date'] < strtotime('2011-08-14 00:00:00')) {
-
 			continue;
 		}
 
@@ -149,6 +216,7 @@ $photo = array(
 			'post_author' => 1,
 			'post_category' => array(AKV3_FLICKR_CAT),
 			'post_title' => $photo['title'],
+			'post_name' => sanitize_title($photo['title']),
 			'post_date' => date('Y-m-d H:i:s', $photo['date'])
 		));
 		set_post_format($post_id, 'image');
