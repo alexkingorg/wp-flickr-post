@@ -95,12 +95,12 @@ function akv3_flickr_process_feed_html($url) {
 }
 
 function akv3_flickr_process_feed_html_phpquery($url) {
-	if (!class_exists('phpQuery')) {
-		include_once('phpQuery.inc.php');
-	}
 	$response = wp_remote_get($url);
 	if (is_wp_error($response)) {
 		return false;
+	}
+	if (!class_exists('phpQuery')) {
+		include_once('phpQuery.inc.php');
 	}
 // get ids
 	$photos = array();
