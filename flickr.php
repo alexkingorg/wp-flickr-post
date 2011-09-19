@@ -91,16 +91,17 @@ function akv3_flickr_feeds_html() {
 }
 
 function akv3_flickr_process_feed_html($url) {
-	return akv3_flickr_process_feed_html_phpquery($url);
+//	return akv3_flickr_process_feed_html_phpquery($url);
+	return akv3_flickr_process_feed_html_pqlite($url);
 }
 
 function akv3_flickr_process_feed_html_phpquery($url) {
-	if (!class_exists('phpQuery')) {
-		include_once('phpQuery.inc.php');
-	}
 	$response = wp_remote_get($url);
 	if (is_wp_error($response)) {
 		return false;
+	}
+	if (!class_exists('phpQuery')) {
+		include_once('phpQuery.inc.php');
 	}
 // get ids
 	$photos = array();
@@ -120,6 +121,63 @@ function akv3_flickr_process_feed_html_phpquery($url) {
 				'date' => null, // timestamp
 				'tags' => null,
 			);
+		}
+	}
+// check for existing
+	$photos = akv3_flickr_ignore_existing($photos);
+// get details on ones to insert
+	if (count($photos)) {
+		foreach ($photos as $guid => &$photo) {
+			if ($data = akv3_flickr_photo_details($photo['id'])) {
+				$photo['title'] = $data->photo->title->_content;
+				$photo['description'] = $data->photo->description->_content;
+				$photo['date'] = $data->photo->dates->posted;
+				$tags = array();
+				$source = $data->photo->tags->tag;
+				foreach ($source as $tag) {
+					$tags[] = $tag->_content;
+				}
+				$photo['tags'] = implode(' ', $tags);
+			}
+			else {
+				unset($photos[$guid]);
+			}
+		}
+	}
+	return $photos;
+}
+
+function akv3_flickr_process_feed_html_pqlite($url) {
+	$response = wp_remote_get($url);
+	if (is_wp_error($response)) {
+		return false;
+	}
+// get ids
+	if (!class_exists('PQLite')) {
+		include_once('PQLite/PQLite.php');
+	}
+	$photos = array();
+	$pq = new PQLite($response['body']);
+	$pq->find('#GoodStuff p.UserTagList a');
+echo $pq->getNumTags(); die();
+	if ($pq->getNumTags()) {
+		for ($i = 0; $i < $pq->getNumTags(); $i++) {
+			$node = $pq->get($i);
+			$href = $node->getAttr('href');
+			if (!empty($href)) {
+				$parts = explode('/', $href);
+				$id = $parts[3];
+				$guid = akv3_flickr_guid($id);
+				$photos[$guid] = array(
+					'id' => $id,
+					'url' => str_replace('_t.jpg', '_b.jpg', pq($node)->find('img')->attr('src')), // get the large size
+					'guid' => $guid,
+					'title' => null,
+					'description' => null,
+					'date' => null, // timestamp
+					'tags' => null,
+				);
+			}
 		}
 	}
 // check for existing
