@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: alexking.org Flickr Posting
-Version: 1.0
+Version: 1.1
 Description: Create posts from Flickr images.
 */
 
@@ -10,8 +10,47 @@ Description: Create posts from Flickr images.
 @define('AKV3_FLICKR_DRYRUN', false);
 @define('AKV3_FLICKR_API', 'html');
 @define('AKV3_FLICKR_API_KEY', 'your-api-key-goes-here');
+@define('AKV3_FLICKR_REQUEST_KEY', '1234567890');
 
+function akv3_flickr_tags() {
+	return array(
+		'instagramapp',
+		'toblog',
+	);
+}
+
+// END CONFIGURATION
+
+// kick off processing in a new thread
 function akv3_flickr_cron() {
+	wp_remote_get(
+		home_url('index.php').'?'.http_build_query(array(
+			'ak_action' => 'flickr_run',
+			'api_key' => AKV3_FLICKR_REQUEST_KEY
+		)),
+		array(
+			'timeout' => 0.01,
+			'blocking' => false,
+			'sslverify' => apply_filters('https_local_ssl_verify', true),
+		)
+	);
+}
+add_action('social_cron_15', 'akv3_flickr_cron');
+
+// catch new thread, do processing
+function akv3_flickr_controller() {
+	if (!empty($_GET['ak_action']) && 
+		$_GET['ak_action'] == 'flickr_run' &&
+		!empty($_GET['api_key']) &&
+		stripslashes($_GET['api_key']) == AKV3_FLICKR_REQUEST_KEY) {
+		akv3_flickr_process();
+		die();
+	}
+}
+add_action('init', 'akv3_flickr_controller');
+
+// pull down feeds from flickr
+function akv3_flickr_process() {
 	set_time_limit(0);
 	switch (AKV3_FLICKR_API) {
 		case 'html':
@@ -34,7 +73,6 @@ function akv3_flickr_cron() {
 		die();
 	}
 }
-add_action('social_cron_15', 'akv3_flickr_cron');
 
 function akv3_flickr_guid($id) {
 	return 'http://flickr-'.urlencode($id);
@@ -42,10 +80,11 @@ function akv3_flickr_guid($id) {
 
 function akv3_flickr_feeds_json() {
 // NOTE: these Flickr APIs update very slowly and omit various images for reasons unknown - they are not to be trusted. 
-	return array(
-		'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags=instagramapp&lang=en-us&format=json&nojsoncallback=1',
-		'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags=toblog&lang=en-us&format=json&nojsoncallback=1',
-	);
+	$feeds = array();
+	foreach (akv3_flickr_tags() as $tag) {
+		$feeds[] = 'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags='.urlencode($tag).'&lang=en-us&format=json&nojsoncallback=1';
+	}
+	return $feeds;
 }
 
 function akv3_flickr_process_feed_json($url) {
@@ -84,10 +123,11 @@ function akv3_flickr_process_feed_json($url) {
 }
 
 function akv3_flickr_feeds_html() {
-	return array(
-		'http://www.flickr.com/photos/alexkingorg/tags/instagramapp/',
-		'http://www.flickr.com/photos/alexkingorg/tags/toblog/',
-	);
+	$feeds = array();
+	foreach (akv3_flickr_tags() as $tag) {
+		$feeds[] = 'http://www.flickr.com/photos/alexkingorg/tags/'.urlencode($tag).'/';
+	}
+	return $feeds;
 }
 
 function akv3_flickr_process_feed_html($url) {
@@ -200,7 +240,7 @@ $photo = array(
 	include_once(ABSPATH.'/wp-admin/includes/media.php');
 	foreach ($photos as $guid => $photo) {
 		// hack to not bring in older photos
-		if ($photo['date'] < strtotime('2011-08-14 00:00:00')) {
+		if ($photo['date'] < strtotime('2011-09-18 00:00:00')) {
 			continue;
 		}
 
@@ -251,7 +291,10 @@ $photo = array(
 		}
 		update_post_meta($post_id, '_thumbnail_id', $id);
 // publish post
-		wp_publish_post($post_id);
+		wp_update_post(array(
+			'ID' => $post_id,
+			'post_status' => 'publish',
+		));
 	}
 // restore timezone
 	date_default_timezone_set($tz);
