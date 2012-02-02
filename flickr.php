@@ -27,7 +27,7 @@ function akv3_flickr_cron() {
 		home_url('index.php').'?'.http_build_query(array(
 			'ak_action' => 'flickr_run',
 			'api_key' => AKV3_FLICKR_REQUEST_KEY
-		)),
+		), null, '&'),
 		array(
 			'timeout' => 0.01,
 			'blocking' => false,
