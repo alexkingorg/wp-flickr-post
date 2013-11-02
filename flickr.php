@@ -8,7 +8,7 @@ Description: Create posts from Flickr images.
 @define('AKV3_FLICKR_CAT', '5');
 @define('AKV3_FLICKR_TIMEZONE', 'America/Denver');
 @define('AKV3_FLICKR_DRYRUN', false);
-@define('AKV3_FLICKR_API', 'html');
+@define('AKV3_FLICKR_API', 'json');
 @define('AKV3_FLICKR_API_KEY', 'your-api-key-goes-here');
 @define('AKV3_FLICKR_REQUEST_KEY', '1234567890');
 
@@ -101,6 +101,10 @@ function akv3_flickr_process_feed_json($url) {
 		$tz = date_default_timezone_get();
 		date_default_timezone_set(AKV3_FLICKR_TIMEZONE);
 		foreach ($data->items as $photo) {
+// only process photos with a recent published date
+			if (strtotime($photo->published) < strtotime('-2 days')) {
+				continue;
+			}
 			$guid = akv3_flickr_guid($photo->link);
 			$title = $photo->title;
 			if (empty($title)) {
@@ -301,6 +305,6 @@ $photo = array(
 }
 
 // test run
-if ($_GET['ak_action'] == 'flickr') {
+if (isset($_GET['ak_action']) && $_GET['ak_action'] == 'flickr') {
  	add_action('admin_init', 'akv3_flickr_cron');
 }
