@@ -35,11 +35,11 @@ function akv3_flickr_cron() {
 		)
 	);
 }
-add_action('social_cron_15', 'akv3_flickr_cron');
+add_action('socialcron15', 'akv3_flickr_cron');
 
 // catch new thread, do processing
 function akv3_flickr_controller() {
-	if (!empty($_GET['ak_action']) && 
+	if (!empty($_GET['ak_action']) &&
 		$_GET['ak_action'] == 'flickr_run' &&
 		!empty($_GET['api_key']) &&
 		stripslashes($_GET['api_key']) == AKV3_FLICKR_REQUEST_KEY) {
@@ -79,7 +79,7 @@ function akv3_flickr_guid($id) {
 }
 
 function akv3_flickr_feeds_json() {
-// NOTE: these Flickr APIs update very slowly and omit various images for reasons unknown - they are not to be trusted. 
+// NOTE: these Flickr APIs update very slowly and omit various images for reasons unknown - they are not to be trusted.
 	$feeds = array();
 	foreach (akv3_flickr_tags() as $tag) {
 		$feeds[] = 'http://api.flickr.com/services/feeds/photos_public.gne?id=25977117@N00&tags='.urlencode($tag).'&lang=en-us&format=json&nojsoncallback=1';
